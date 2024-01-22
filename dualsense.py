@@ -247,14 +247,18 @@ class DualSense:
         self.RX = data[3] - 127
         self.RY = data[4] - 127
 
-        # Calculate angle (Always is between -pi and pi)
-        deadzone = 4
-        if abs(self.RX) > deadzone or abs(self.RY) > deadzone:
-            self.Rthumb = - math.atan2(self.RY, self.RX)
-        else: self.Rthumb = 0
-        if abs(self.LX) > deadzone or abs(self.LY) > deadzone:
-            self.Lthumb = - math.atan2(self.LY, self.LX)
-        else: self.Lthumb = 0
+        # Calculate angle
+        thetas = [0,0]
+        # Thumbstick control
+        if abs(self.LX) > 4:
+            thetas[0] = thetas[0] + (self.LX)/200
+        if abs(self.LY) > 4:
+            thetas[1] = thetas[1] - (self.LY)/200
+        # find the angle from x and y (theta0 and theta1)
+        theta = 0
+        if np.abs(thetas[0]) > 0:
+            theta = np.arctan2(-thetas[0],thetas[1])
+        self.Ltheta = theta
 
     def updateMisc(self):
         misc = self.data[9]

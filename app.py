@@ -5,25 +5,34 @@
 
 import streamlit as st
 import numpy as np
-import modern_robotics as mr
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import time
 import math
-
+import plot 
+my_plot = plot.plotting()
 import dualsense # DualSense controller communication
 import customize_gui # streamlit GUI modifications
-import robot
 DualSense = dualsense.DualSense
 gui = customize_gui.gui()
-my_robot = robot.two2_robot()
-Obstacles = robot.TwoD_objects()
+
+def transformBodies(dx,dy,da,bodies):
+    T_bodies = []
+    for body in bodies:
+        T = np.array([[np.cos(da), -np.sin(da), dx], [np.sin(da), np.cos(da), dy], [0, 0, 1]])
+        body_homogeneous = np.vstack((body.T, np.ones((1, body.shape[0]))))
+        body_homogeneous = np.matmul(T, body_homogeneous)
+        body = body_homogeneous[:2].T
+        T_bodies.append(body)
+    return T_bodies
 
 def main():
     # Set up the app UI
     gui.clean_format(wide=True)
-    gui.about(text = "This code implements the configuration space of a 2R robot as a 2D plot.")
+    gui.about(text = "This code Shows the bicycle steering model and its Center of rotation, and velocity vector.")
     Title, subTitle, Sidebar, image_spot = st.empty(), st.empty(), st.sidebar.empty(), st.columns([1,5,1])[1].empty()
+    title = "<span style='font-size:30px;'>Kinematic Bicycle model:</span>"
+    with Title: st.markdown(f" {title} &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ", unsafe_allow_html=True)
     
     # Setting up the dualsense controller connection
     vendorID, productID = int("0x054C", 16), int("0x0CE6", 16)
@@ -32,51 +41,52 @@ def main():
     except Exception as e: st.error("Error occurred while connecting to Dualsense controller. Make sure the controller is wired up and the vendor and product ID's are correctly set in the python script.")
     
     # Initialize loop variables
-    thetas = [0,0]
-    fig, ax = my_robot.get_colored_plt('#FFFFFF','#335095','#D6D6D6')
-    my_robot.set_c_space_ax(ax)
+    fig, ax = my_plot.get_colored_plt('#FFFFFF','#335095','#D6D6D6')
+    my_plot.set_c_space_ax(ax)
 
-    # Create a static axis for the obstacles
-    x0, y0 = Obstacles.rectangle(x=-3,y=3,w=2,h=2)
-    x1, y1 = Obstacles.circle(x=2,y=2,r=1)
-    x2, y2 = Obstacles.polygon(x=-2,y=-2,n=5,r=2)
-    x3, y3 = Obstacles.polygon(x=4,y=-4,n=3,r=2)
-    x = np.concatenate((x0,x1,x2,x3))
-    y = np.concatenate((y0,y1,y2,y3))
+    # Setup the plotted objects
+    fw, = ax.plot([],[],'k',linewidth=1)
+    icr, = ax.plot([],[],'ro')
+    vel, = ax.plot([],[])
 
-    start = [0,0]
-    ax.plot(start[0],start[1],'ko',markersize=5)
-    goal = [5,5]
-    ax.plot(goal[0],goal[1],'rx',markersize=5)
-
-    dynamic_content, = ax.plot([],[],'ro',linewidth=1) # Coding note, the comma unpacks the list of line objects that plot returns
-    static_content, = ax.plot(x,y, 'ro', linewidth=.1)
+    # car body 
+    L = 1.5 # Wheel base
+    Lr = .75 # Rear wheel to vehicle slip center
+    front_wheel = np.array([[-.5,1],[.5,1],[.5,-1],[-.5,-1],[-.5,1]])*.25
+    back_wheel = np.array([[-.5,1],[.5,1],[.5,-1],[-.5,-1],[-.5,1]])*.25 + np.array([0,-L/2])
+    body = np.array([[0,L],[0,-L]])*.5
+    #ax.plot(front_wheel[:,0],front_wheel[:,1],'k',linewidth=1)
+    ax.plot(back_wheel[:,0],back_wheel[:,1],'k',linewidth=1)
+    ax.plot(body[:,0],body[:,1],'k',linewidth=2.5,solid_capstyle='round')
 
     # Control Loop
+    prev_theta = 0
     while True:
         ds.receive()
         ds.updateThumbsticks()
+        theta = ds.Ltheta
+        d_theta =  prev_theta - theta
 
-        # Thumbstick control
-        ds.updateThumbsticks()
-        if abs(ds.LX) > 4:
-            thetas[0] = thetas[0] + (ds.LX)/200
-        if abs(ds.LY) > 4:
-            thetas[1] = thetas[1] - (ds.LY)/200
+        # Rotate the front wheel by d_theta
+        R = np.array([[np.cos(d_theta), -np.sin(d_theta)], [np.sin(d_theta), np.cos(d_theta)]])
+        front_wheel = np.matmul(front_wheel, R)
 
-        # Determine which joint is selected
-        joints_label = "<span style='font-size:30px;'>Joints:</span>"
-        j1 = "<span style='font-size:30px;'>J1</span>" if abs(ds.LX) > 30 else "<span style='font-size:20px;'>J1</span>"
-        j2 = "<span style='font-size:30px;'>J2</span>" if abs(ds.LY) > 30 else "<span style='font-size:20px;'>J2</span>"
-        with Title: st.markdown(f" {joints_label} &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;{j1} &nbsp; | &nbsp; {j2} &nbsp; ", unsafe_allow_html=True)
-            
-        # make sure th1 and th2 are between -2pi and 2pi 
-        thetas[0] = (thetas[0] + 2*np.pi) % (4*np.pi) - 2*np.pi
-        thetas[1] = (thetas[1] + 2*np.pi) % (4*np.pi) - 2*np.pi
-            
-        # Show the C-Space map 
-        dynamic_content.set_data(thetas[0], thetas[1])
-        fig.canvas.draw_idle()
+        # Update the previous value of theta
+        prev_theta = theta
+
+        fw.set_data(front_wheel[:,0],front_wheel[:,1]+L/2)
+
+        # Determine the ICR, Center of rotation
+        R = L / np.tan(theta)
+        # R connects the back wheel center to the ICR
+        if np.abs(theta) > 0: 
+            icr.set_data(-R,-Lr)
+
+        # beta is the angle of the velocity vector, its origin the the center of mass
+        beta = np.arctan(Lr/L * np.tan(theta))
+        with subTitle: st.write(beta)
+        vel.set_data([0, -np.sin(beta)], [0, 1])
+        
         with image_spot: st.pyplot(fig)
 
 main()
