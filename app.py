@@ -29,7 +29,7 @@ def transformBodies(dx,dy,da,bodies):
 def main():
     # Set up the app UI
     gui.clean_format(wide=True)
-    gui.about(text = "This code Shows the bicycle steering model and its Center of rotation, and velocity vector.")
+    gui.about(text = "This code Shows the bicycle steering model and its Center of rotation, and velocity vector, assumes no wheel slip")
     Title, subTitle, Sidebar, image_spot = st.empty(), st.empty(), st.sidebar.empty(), st.columns([1,5,1])[1].empty()
     title = "<span style='font-size:30px;'>Kinematic Bicycle model:</span>"
     with Title: st.markdown(f" {title} &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ", unsafe_allow_html=True)
